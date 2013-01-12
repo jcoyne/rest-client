@@ -1,3 +1,4 @@
+# encoding: ASCII-8BIT   # make sure this runs in binary mode
 require File.join( File.dirname(File.expand_path(__FILE__)), 'base')
 
 require 'webmock/rspec'
@@ -5,7 +6,7 @@ include WebMock::API
 
 describe RestClient::Response do
   before do
-    @net_http_res = mock('net http response', :to_hash => {"Status" => ["200 OK"]}, :code => 200)
+    @net_http_res = mock('net http response', :to_hash => {"Status" => ["200 OK"]}, :code => 200, :type_params => {}, :content_type=>'text/html')
     @request = mock('http request', :user => nil, :password => nil)
     @response = RestClient::Response.create('abc', @net_http_res, {})
   end
@@ -27,14 +28,14 @@ describe RestClient::Response do
 
   describe "cookie processing" do
     it "should correctly deal with one Set-Cookie header with one cookie inside" do
-      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT"]})
+      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT"]}, :code=>200, :type_params=>{}, :content_type=>'text/html')
       response = RestClient::Response.create('abc', net_http_res, {})
       response.headers[:set_cookie].should == ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT"]
       response.cookies.should == { "main_page" => "main_page_no_rewrite" }
     end
 
     it "should correctly deal with multiple cookies [multiple Set-Cookie headers]" do
-      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT", "remember_me=; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT", "user=somebody; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT"]})
+      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT", "remember_me=; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT", "user=somebody; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT"]}, :code=>200, :type_params=>{}, :content_type=>'text/html')
       response = RestClient::Response.create('abc', net_http_res, {})
       response.headers[:set_cookie].should == ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT", "remember_me=; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT", "user=somebody; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT"]
       response.cookies.should == {
@@ -45,7 +46,7 @@ describe RestClient::Response do
     end
 
     it "should correctly deal with multiple cookies [one Set-Cookie header with multiple cookies]" do
-      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT, remember_me=; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT, user=somebody; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT"]})
+      net_http_res = mock('net http response', :to_hash => {"etag" => ["\"e1ac1a2df945942ef4cac8116366baad\""], "set-cookie" => ["main_page=main_page_no_rewrite; path=/; expires=Tue, 20-Jan-2015 15:03:14 GMT, remember_me=; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT, user=somebody; path=/; expires=Thu, 01-Jan-1970 00:00:00 GMT"]}, :code=>200, :type_params=>{}, :content_type=>'text/html')
       response = RestClient::Response.create('abc', net_http_res, {})
       response.cookies.should == {
               "main_page" => "main_page_no_rewrite",
@@ -58,7 +59,7 @@ describe RestClient::Response do
   describe "exceptions processing" do
     it "should return itself for normal codes" do
       (200..206).each do |code|
-        net_http_res = mock('net http response', :code => '200')
+        net_http_res = mock('net http response', :code => '200', :type_params => {}, :content_type=>'text/html')
         response = RestClient::Response.create('abc', net_http_res, {})
         response.return! @request
       end
@@ -76,6 +77,41 @@ describe RestClient::Response do
 
   end
 
+  describe "charset" do
+    it "does nothing when Content-Type is missing" do
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo')
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('ASCII-8BIT')
+    end
+    it "does nothing when charset is missing and it's not a text type" do
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo', :headers => {'Content-Type' => 'image/png'})
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('ASCII-8BIT')
+    end
+    it "defaults to us-ascii when content-type is text/xml and charset is missing" do
+      # @see http://tools.ietf.org/html/rfc3023#page-19
+      # > Conformant with [RFC2046], if a text/xml entity is received with
+      # > the charset parameter omitted, MIME processors and XML processors
+      # > MUST use the default charset value of "us-ascii"[ASCII].  In cases
+      # > where the XML MIME entity is transmitted via HTTP, the default
+      # > charset value is still "us-ascii".  (Note: There is an
+      # > inconsistency between this specification and HTTP/1.1, which uses
+      # > ISO-8859-1[ISO8859] as the default for a historical reason.  Since
+      # > XML is a new format, a new default should be chosen for better
+      # > I18N.  US-ASCII was chosen, since it is the intersection of UTF-8
+      # > and ISO-8859-1 and since it is already used by MIME.)
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo', :headers => {'Content-Type' => 'text/xml'})
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('us-ascii')
+    end
+    it "defaults to iso-8859-1 when content-type is a subtype of text and charset is missing" do
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo', :headers => {'Content-Type' => 'text/plain'})
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('iso-8859-1')
+    end
+    it "forces the encoding to the charset header" do
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo', :headers => {'Content-Type' => 'text/html; charset=UTF-8'})
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('utf-8')
+      stub_request(:get, 'http://some/resource').to_return(:body => 'Foo', :headers => {'Content-Type' => 'text/html; charset=iso-8859-1'})
+      RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.encoding.should == Encoding.find('iso-8859-1')
+    end
+  end
   describe "redirection" do
     
     it "follows a redirection when the request is a get" do
@@ -122,25 +158,25 @@ describe RestClient::Response do
 
     it "follows a redirection when the request is a post and result is a 303" do
       stub_request(:put, 'http://some/resource').to_return(:body => '', :status => 303, :headers => {'Location' => 'http://new/resource'})
-      stub_request(:get, 'http://new/resource').to_return(:body => 'Foo')
+      stub_request(:get, 'http://new/resource').to_return(:body => 'Foo', :type_params => {})
       RestClient::Request.execute(:url => 'http://some/resource', :method => :put).body.should == 'Foo'
     end
 
     it "follows a redirection when the request is a head" do
       stub_request(:head, 'http://some/resource').to_return(:body => '', :status => 301, :headers => {'Location' => 'http://new/resource'})
-      stub_request(:head, 'http://new/resource').to_return(:body => 'Foo')
+      stub_request(:head, 'http://new/resource').to_return(:body => 'Foo', :type_params => {})
       RestClient::Request.execute(:url => 'http://some/resource', :method => :head).body.should == 'Foo'
     end
 
     it "handles redirects with relative paths" do
       stub_request(:get, 'http://some/resource').to_return(:body => '', :status => 301, :headers => {'Location' => 'index'})
-      stub_request(:get, 'http://some/index').to_return(:body => 'Foo')
+      stub_request(:get, 'http://some/index').to_return(:body => 'Foo', :type_params => {})
       RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.should == 'Foo'
     end
 
     it "handles redirects with relative path and query string" do
       stub_request(:get, 'http://some/resource').to_return(:body => '', :status => 301, :headers => {'Location' => 'index?q=1'})
-      stub_request(:get, 'http://some/index?q=1').to_return(:body => 'Foo')
+      stub_request(:get, 'http://some/index?q=1').to_return(:body => 'Foo', :type_params => {})
       RestClient::Request.execute(:url => 'http://some/resource', :method => :get).body.should == 'Foo'
     end
 

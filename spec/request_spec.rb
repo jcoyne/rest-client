@@ -50,9 +50,7 @@ describe RestClient::Request do
   end
 
   it "processes a successful result" do
-    res = mock("result")
-    res.stub!(:code).and_return("200")
-    res.stub!(:body).and_return('body')
+    res = stub("result", :code=>"200", :body=>"body", :content_type=>'text/plain', :type_params=>{})
     res.stub!(:[]).with('content-encoding').and_return(nil)
     @request.process_result(res).body.should == 'body'
     @request.process_result(res).to_s.should == 'body'
@@ -60,9 +58,7 @@ describe RestClient::Request do
 
   it "doesn't classify successful requests as failed" do
     203.upto(207) do |code|
-      res = mock("result")
-      res.stub!(:code).and_return(code.to_s)
-      res.stub!(:body).and_return("")
+      res = stub("result", :code=>"200", :body=>"", :content_type=>'text/plain', :type_params=>{})
       res.stub!(:[]).with('content-encoding').and_return(nil)
       @request.process_result(res).should be_empty
     end
